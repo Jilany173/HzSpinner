@@ -78,9 +78,16 @@ service cloud.firestore {
              data.uid == request.auth.uid;
     }
 
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.createdAt is number;
+    }
+
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
           (request.auth.token.email == "jilany.hexas@gmail.com" && request.auth.token.email_verified == true));
     }
 
@@ -110,8 +117,8 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow read: if isAuthenticated() && userId == request.auth.uid;
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin() && isValidUser(request.resource.data);
     }
   }
 }

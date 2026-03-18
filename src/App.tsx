@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { Sparkles, Trophy, Users, History as HistoryIcon, RotateCcw, LogOut, LogIn, X, ChevronDown, PlusCircle, Trash, LayoutDashboard, Settings } from 'lucide-react';
+import { Sparkles, Trophy, Users, History as HistoryIcon, RotateCcw, LogOut, LogIn, X, ChevronDown, PlusCircle, Trash, LayoutDashboard, Settings, Lock, User as UserIcon } from 'lucide-react';
 import SpinnerWheel from './components/SpinnerWheel';
 import TeacherManager from './components/TeacherManager';
 import SpinHistory from './components/SpinHistory';
 import { Teacher, SpinResult, TeacherList } from './types';
-import { auth, db, signInWithGoogle, logout } from './firebase';
+import { auth, db, logout, loginWithEmail } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { 
   collection, 
@@ -94,6 +94,14 @@ export default function App() {
   const [showCreateListModal, setShowCreateListModal] = useState(false);
   const [newListName, setNewListName] = useState('');
   const [activeTab, setActiveTab] = useState<'spinner' | 'teachers' | 'history' | 'settings'>('spinner');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [appUsers, setAppUsers] = useState<{ uid: string, email: string, createdAt: number, role?: string }[]>([]);
+  const [userAddStatus, setUserAddStatus] = useState<{ type: 'success' | 'error' | '', message: string }>({ type: '', message: '' });
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [confirmModal, setConfirmModal] = useState<{
     show: boolean;
     title: string;
@@ -278,8 +286,66 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Firestore Sync: Users (Admins only)
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    if (!user) {
+      setAppUsers([]);
+      return;
+    }
+
+    const isAdmin = user.email === 'jilany.hexas@gmail.com';
+    
+    const initUserList = async () => {
+      let shouldListen = isAdmin;
+      
+      if (!shouldListen) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists() && userDoc.data().role === 'admin') {
+            shouldListen = true;
+          }
+        } catch (e) {
+          console.error("Error checking admin status:", e);
+        }
+      }
+
+      if (shouldListen) {
+        const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const userData = snapshot.docs.map(doc => ({
+            ...doc.data()
+          })) as any[];
+          setAppUsers(userData);
+
+          // Ensure primary admin exists in the list
+          if (user.email === 'jilany.hexas@gmail.com' && !userData.find(u => u.email === user.email)) {
+            setDoc(doc(db, 'users', user.uid), {
+              uid: user.uid,
+              email: user.email,
+              createdAt: Date.now(),
+              role: 'admin'
+            }, { merge: true });
+          }
+        }, (error) => {
+          console.error("Firestore Error (Users):", error);
+        });
+      }
+    };
+
+    initUserList();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user]);
+
   const handleAddTeacher = async (name: string) => {
-    if (!user || !currentListId) return;
+    if (!user || !currentListId) {
+      console.warn("Cannot add teacher: user or currentListId missing", { user: !!user, currentListId });
+      return;
+    }
     try {
       await addDoc(collection(db, 'teachers'), {
         name,
@@ -288,12 +354,15 @@ export default function App() {
         id: Math.random().toString(36).substr(2, 9)
       });
     } catch (error) {
-      console.error("Error adding teacher:", error);
+      handleFirestoreError(error, OperationType.CREATE, 'teachers');
     }
   };
 
   const handleBulkAddTeachers = async (names: string[]) => {
-    if (!user || !currentListId) return;
+    if (!user || !currentListId) {
+      console.warn("Cannot bulk add teachers: user or currentListId missing", { user: !!user, currentListId });
+      return;
+    }
     try {
       const batch = writeBatch(db);
       names.forEach(name => {
@@ -307,7 +376,7 @@ export default function App() {
       });
       await batch.commit();
     } catch (error) {
-      console.error("Error bulk adding teachers:", error);
+      handleFirestoreError(error, OperationType.WRITE, 'teachers');
     }
   };
 
@@ -316,7 +385,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'teachers', id));
     } catch (error) {
-      console.error("Error deleting teacher:", error);
+      handleFirestoreError(error, OperationType.DELETE, `teachers/${id}`);
     }
   };
 
@@ -325,7 +394,7 @@ export default function App() {
     try {
       await updateDoc(doc(db, 'teachers', id), { name: newName });
     } catch (error) {
-      console.error("Error editing teacher:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `teachers/${id}`);
     }
   };
 
@@ -499,13 +568,96 @@ export default function App() {
     });
   }, [user, currentTopic]);
 
-  const handleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    
+    if (!username || !password) {
+      setLoginError('Please enter both username and password.');
+      return;
+    }
+
     try {
-      await signInWithGoogle();
+      // Treat username as email (e.g., username@hexa.com)
+      const email = username.includes('@') ? username : `${username}@hexa.com`;
+      await loginWithEmail(email, password);
     } catch (error: any) {
       console.error("Login failed:", error);
-      alert("Login failed! Please make sure hz-spinner.vercel.app is added to Authorized Domains in Firebase Console.");
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setLoginError("Invalid username or password.");
+      } else if (error.code === 'auth/invalid-email') {
+        setLoginError("Invalid email format.");
+      } else {
+        setLoginError(error.message || "Login failed. Please try again.");
+      }
     }
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail || !newUserPassword) return;
+    
+    setIsAddingUser(true);
+    setUserAddStatus({ type: '', message: '' });
+
+    try {
+      const { initializeApp, deleteApp } = await import('firebase/app');
+      const { getAuth, createUserWithEmailAndPassword } = await import('firebase/auth');
+      const { firebaseConfig } = await import('./firebase');
+
+      // Create a secondary app to avoid signing out the current admin
+      const secondaryApp = initializeApp(firebaseConfig, 'Secondary-' + Math.random().toString(36).substr(2, 9));
+      const secondaryAuth = getAuth(secondaryApp);
+      
+      const email = newUserEmail.includes('@') ? newUserEmail : `${newUserEmail}@hexa.com`;
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newUserPassword);
+      const newUid = userCredential.user.uid;
+
+      // Save metadata to Firestore using the main app instance
+      await setDoc(doc(db, 'users', newUid), {
+        uid: newUid,
+        email: email,
+        createdAt: Date.now(),
+        role: 'admin' // Defaulting to admin for this system
+      });
+      
+      // Clean up secondary app
+      await deleteApp(secondaryApp);
+      
+      setUserAddStatus({ type: 'success', message: `User ${email} added successfully!` });
+      setNewUserEmail('');
+      setNewUserPassword('');
+    } catch (error: any) {
+      console.error("Error adding user:", error);
+      let msg = error.message || "Failed to add user.";
+      if (error.code === 'auth/email-already-in-use') msg = "This username/email is already in use.";
+      if (error.code === 'auth/weak-password') msg = "Password should be at least 6 characters.";
+      setUserAddStatus({ type: 'error', message: msg });
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (uid: string, email: string) => {
+    if (!user || email === 'jilany.hexas@gmail.com') return;
+
+    setConfirmModal({
+      show: true,
+      title: 'Delete Administrator',
+      message: `Are you sure you want to remove ${email}? They will no longer be able to log in.`,
+      onConfirm: async () => {
+        try {
+          // Note: This only deletes the metadata from Firestore. 
+          // Deleting from Auth requires Admin SDK or a Cloud Function.
+          // For this app, we'll just remove the metadata which is what's shown.
+          await deleteDoc(doc(db, 'users', uid));
+          setConfirmModal(prev => ({ ...prev, show: false }));
+          setUserAddStatus({ type: 'success', message: `User ${email} removed from list.` });
+        } catch (error) {
+          console.error("Error deleting user metadata:", error);
+        }
+      }
+    });
   };
 
   if (authLoading) {
@@ -530,16 +682,57 @@ export default function App() {
           </div>
           <div className="space-y-2">
             <h2 className="text-blue-600 font-black text-sm uppercase tracking-widest">Hexa's Zindabazar Spinner</h2>
-            <h1 className="text-3xl font-black text-slate-900">Welcome Back!</h1>
-            <p className="text-slate-500 font-medium">Sign in to save your teacher lists and spin history.</p>
+            <h1 className="text-3xl font-black text-slate-900">Admin Login</h1>
+            <p className="text-slate-500 font-medium">Only authorized administrators can access this system.</p>
           </div>
-          <button
-            onClick={handleLogin}
-            className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 shadow-xl hover:scale-105 active:scale-95"
-          >
-            <LogIn className="w-6 h-6" />
-            Sign in with Google
-          </button>
+
+          <form onSubmit={handleLogin} className="space-y-4 text-left">
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700 ml-1">Username</label>
+              <div className="relative">
+                <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter username"
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 focus:border-blue-500 focus:outline-none transition-all font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700 ml-1">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 focus:border-blue-500 focus:outline-none transition-all font-medium"
+                />
+              </div>
+            </div>
+
+            {loginError && (
+              <p className="text-red-500 text-sm font-bold text-center bg-red-50 py-2 rounded-xl border border-red-100 px-4">
+                {loginError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 shadow-xl hover:scale-105 active:scale-95"
+            >
+              <LogIn className="w-6 h-6" />
+              Login with Username
+            </button>
+          </form>
+          
+          <p className="text-xs text-slate-400 font-medium">
+            Contact Hexa IT for access credentials.
+          </p>
         </div>
       </div>
     );
@@ -848,11 +1041,6 @@ export default function App() {
                             <h2 className="text-6xl md:text-7xl font-black text-slate-900 tracking-tight mb-6">
                               {lastWinner.name}
                             </h2>
-                            <div className="flex items-center justify-center gap-4">
-                              <div className="h-px flex-1 bg-slate-100" />
-                              <Sparkles className="text-amber-400 w-8 h-8" />
-                              <div className="h-px flex-1 bg-slate-100" />
-                            </div>
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -880,6 +1068,106 @@ export default function App() {
                     exit={{ opacity: 0, y: -10 }}
                     className="max-w-2xl mx-auto"
                   >
+                    <div className="bg-white rounded-[32px] shadow-sm border border-slate-200 overflow-hidden mb-8">
+                      <div className="p-8 border-b border-slate-100">
+                        <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                          <UserIcon className="w-5 h-5 text-blue-600" />
+                          User Management
+                        </h2>
+                        <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">Add New Administrators</p>
+                      </div>
+                      
+                      <div className="p-8">
+                        <form onSubmit={handleAddUser} className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-500 ml-1">Username / Email</label>
+                              <input
+                                type="text"
+                                value={newUserEmail}
+                                onChange={(e) => setNewUserEmail(e.target.value)}
+                                placeholder="e.g., admin2"
+                                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-3 px-4 focus:border-blue-500 focus:outline-none transition-all font-medium"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-500 ml-1">Password</label>
+                              <input
+                                type="password"
+                                value={newUserPassword}
+                                onChange={(e) => setNewUserPassword(e.target.value)}
+                                placeholder="Min 6 characters"
+                                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-3 px-4 focus:border-blue-500 focus:outline-none transition-all font-medium"
+                              />
+                            </div>
+                          </div>
+
+                          {userAddStatus.message && (
+                            <div className={`p-4 rounded-2xl text-sm font-bold border ${
+                              userAddStatus.type === 'success' 
+                              ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                              : 'bg-red-50 text-red-600 border-red-100'
+                            }`}>
+                              {userAddStatus.message}
+                            </div>
+                          )}
+
+                          <button
+                            type="submit"
+                            disabled={isAddingUser || !newUserEmail || !newUserPassword}
+                            className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 shadow-lg disabled:opacity-50"
+                          >
+                            {isAddingUser ? (
+                              <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                              <PlusCircle className="w-6 h-6" />
+                            )}
+                            Create New Account
+                          </button>
+                        </form>
+
+                        {appUsers.length > 0 && (
+                          <div className="mt-12 space-y-4">
+                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                              <Users className="w-4 h-4" />
+                              Registered Administrators ({appUsers.length})
+                            </h3>
+                            <div className="grid grid-cols-1 gap-3">
+                              {appUsers.map((u) => (
+                                <div key={u.uid} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center border border-slate-200 shadow-sm">
+                                      <UserIcon className="w-5 h-5 text-slate-400" />
+                                    </div>
+                                    <div>
+                                      <p className="font-bold text-slate-900">{u.email}</p>
+                                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                        Added {new Date(u.createdAt).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-black rounded-full uppercase tracking-wider">
+                                      {u.role || 'Admin'}
+                                    </div>
+                                    {u.email !== 'jilany.hexas@gmail.com' && (
+                                      <button 
+                                        onClick={() => handleDeleteUser(u.uid, u.email)}
+                                        className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                                        title="Remove User"
+                                      >
+                                        <Trash className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="bg-white rounded-[32px] shadow-sm border border-slate-200 overflow-hidden">
                       <div className="p-8 border-b border-slate-100">
                         <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
