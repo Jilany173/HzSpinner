@@ -499,14 +499,6 @@ export default function App() {
     });
   }, [user, currentTopic]);
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-blue-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
   const handleLogin = async () => {
     try {
       await signInWithGoogle();
@@ -516,26 +508,24 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-blue-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-[40px] shadow-2xl max-w-md w-full text-center space-y-8 border-4 border-white">
           <div className="relative h-24 flex items-center justify-center">
             <img 
-              src="https://storage.googleapis.com/mcp-user-content-ipp7by4hi4kidsekr4wyqj/534094005481/81720875-189f-4318-971c-772877028441.png" 
+              src="https://images.weserv.nl/?url=storage.googleapis.com/mcp-user-content-ipp7by4hi4kidsekr4wyqj/534094005481/81720875-189f-4318-971c-772877028441.png" 
               alt="Logo" 
-              className="h-24 mx-auto object-contain relative z-10"
+              className="h-24 mx-auto object-contain"
               referrerPolicy="no-referrer"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent) {
-                  const fallback = document.createElement('div');
-                  fallback.className = 'w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center text-white font-black text-2xl shadow-xl';
-                  fallback.innerText = 'HZ';
-                  parent.appendChild(fallback);
-                }
-              }}
             />
           </div>
           <div className="space-y-2">
