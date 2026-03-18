@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: teachers
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, 1-100 chars)
+    //   - uid: string (required, owner UID)
+    //   - listId: string (required)
+    //
+    // Collection: lists
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, 1-100 chars)
+    //   - uid: string (required, owner UID)
+    //   - createdAt: number (required)
+    //
+    // Collection: history
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - teacherName: string (required)
+    //   - topic: string (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - uid: string (required, owner UID)
+    //
+    // Collection: configs
+    // Document ID: user UID
+    // Fields:
+    //   - currentTopic: string (optional)
+    //   - uid: string (required, owner UID)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isValidTeacher(data) {
+      return data.keys().hasAll(['id', 'name', 'uid', 'listId']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.uid == request.auth.uid &&
+             data.listId is string;
+    }
+
+    function isValidList(data) {
+      return data.keys().hasAll(['id', 'name', 'uid', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.uid == request.auth.uid &&
+             data.createdAt is number;
+    }
+
+    function isValidHistory(data) {
+      return data.keys().hasAll(['id', 'teacherName', 'topic', 'timestamp', 'uid']) &&
+             data.teacherName is string &&
+             data.topic is string &&
+             data.timestamp is number &&
+             data.uid == request.auth.uid;
+    }
+
+    function isValidConfig(data) {
+      return data.keys().hasAll(['uid']) &&
+             data.uid == request.auth.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "jilany.hexas@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() && isValidTeacher(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidTeacher(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /lists/{listId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() && isValidList(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidList(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /history/{historyId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() && isValidHistory(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /configs/{configId} {
+      allow read: if isAuthenticated() && configId == request.auth.uid;
+      allow write: if isAuthenticated() && configId == request.auth.uid && isValidConfig(request.resource.data);
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated() && userId == request.auth.uid;
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "Teacher": {
+      "title": "Teacher",
+      "description": "A teacher who can be selected in the spinner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "uid": { "type": "string" },
+        "listId": { "type": "string" }
+      },
+      "required": ["id", "name", "uid", "listId"]
+    },
+    "TeacherList": {
+      "title": "Teacher List",
+      "description": "A named collection of teachers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "uid": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "uid", "createdAt"]
+    },
+    "SpinHistory": {
+      "title": "Spin History",
+      "description": "A record of a spin result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "topic": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["id", "teacherName", "topic", "timestamp", "uid"]
+    },
+    "AppConfig": {
+      "title": "App Config",
+      "description": "User specific app configuration like current topic and selected list",
+      "type": "object",
+      "properties": {
+        "currentTopic": { "type": "string" },
+        "currentListId": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["uid"]
+    }
+  },
+  "firestore": {
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Collection of teachers for the user"
+    },
+    "/lists/{listId}": {
+      "schema": "TeacherList",
+      "description": "Collection of named lists for the user"
+    },
+    "/history/{historyId}": {
+      "schema": "SpinHistory",
+      "description": "Collection of spin results for the user"
+    },
+    "/configs/{configId}": {
+      "schema": "AppConfig",
+      "description": "User specific configuration"
+    }
+  }
+}
