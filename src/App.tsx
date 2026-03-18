@@ -507,23 +507,44 @@ export default function App() {
     );
   }
 
+  const handleLogin = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      console.error("Login failed:", error);
+      alert("Login failed! Please make sure hz-spinner.vercel.app is added to Authorized Domains in Firebase Console.");
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-[40px] shadow-2xl max-w-md w-full text-center space-y-8 border-4 border-white">
-          <img 
-            src="https://storage.googleapis.com/mcp-user-content-ipp7by4hi4kidsekr4wyqj/534094005481/81720875-189f-4318-971c-772877028441.png" 
-            alt="Logo" 
-            className="h-24 mx-auto object-contain"
-            referrerPolicy="no-referrer"
-          />
+          <div className="relative h-24 flex items-center justify-center">
+            <img 
+              src="https://storage.googleapis.com/mcp-user-content-ipp7by4hi4kidsekr4wyqj/534094005481/81720875-189f-4318-971c-772877028441.png" 
+              alt="Logo" 
+              className="h-24 mx-auto object-contain relative z-10"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const parent = e.currentTarget.parentElement;
+                if (parent) {
+                  const fallback = document.createElement('div');
+                  fallback.className = 'w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center text-white font-black text-2xl shadow-xl';
+                  fallback.innerText = 'HZ';
+                  parent.appendChild(fallback);
+                }
+              }}
+            />
+          </div>
           <div className="space-y-2">
             <h2 className="text-blue-600 font-black text-sm uppercase tracking-widest">Hexa's Zindabazar Spinner</h2>
             <h1 className="text-3xl font-black text-slate-900">Welcome Back!</h1>
             <p className="text-slate-500 font-medium">Sign in to save your teacher lists and spin history.</p>
           </div>
           <button
-            onClick={signInWithGoogle}
+            onClick={handleLogin}
             className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 shadow-xl hover:scale-105 active:scale-95"
           >
             <LogIn className="w-6 h-6" />
