@@ -515,6 +515,7 @@ export default function App() {
             src="https://storage.googleapis.com/mcp-user-content-ipp7by4hi4kidsekr4wyqj/534094005481/81720875-189f-4318-971c-772877028441.png" 
             alt="Logo" 
             className="h-24 mx-auto object-contain"
+            referrerPolicy="no-referrer"
           />
           <div className="space-y-2">
             <h2 className="text-blue-600 font-black text-sm uppercase tracking-widest">Hexa's Zindabazar Spinner</h2>
@@ -600,6 +601,7 @@ export default function App() {
                 src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} 
                 alt={user.displayName || 'User'} 
                 className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
+                referrerPolicy="no-referrer"
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-900 truncate">{user.displayName}</p>
